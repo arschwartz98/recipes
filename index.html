@@ -408,75 +408,40 @@
 
   // ── AI EXTRACTION ──
   async function extractRecipe() {
-    const url = document.getElementById('aiUrl').value.trim();
-    if (!url) return;
+  const url = document.getElementById('aiUrl').value.trim();
+  if (!url) return;
 
-    const status = document.getElementById('aiStatus');
-    status.className = 'ai-status loading';
-    status.innerHTML = '<div class="spinner"></div> Fetching &amp; extracting recipe with AI...';
+  const status = document.getElementById('aiStatus');
+  status.className = 'ai-status loading';
+  status.innerHTML = '<div class="spinner"></div> Fetching &amp; extracting recipe with AI...';
 
-    try {
-      // Step 1: fetch page content
-      const proxyRes = await fetch(`https://api.allorigins.win/get?url=${encodeURIComponent(url)}`);
-      const proxyData = await proxyRes.json();
-      const html = proxyData.contents || '';
+  try {
+    const res = await fetch(WORKER_URL, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ url: url })
+    });
 
-      // strip tags for cleaner text
-      const text = html.replace(/<script[^>]*>[\s\S]*?<\/script>/gi,'')
-                       .replace(/<style[^>]*>[\s\S]*?<\/style>/gi,'')
-                       .replace(/<[^>]+>/g,' ')
-                       .replace(/\s+/g,' ')
-                       .substring(0, 6000);
+    const recipe = await res.json();
 
-      // Step 2: send to Claude via Worker
-      const res = await fetch(WORKER_URL, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          messages: [{
-            role: 'user',
-            content: `Extract the recipe from this webpage text and return ONLY a JSON object with these exact fields:
-{
-  "title": "recipe name",
-  "description": "one sentence description",
-  "time": "total cook time e.g. 30 min",
-  "category": "one of: breakfast, lunch, dinner, snacks, dessert, drinks, other",
-  "ingredients": ["ingredient 1", "ingredient 2"],
-  "steps": ["step 1", "step 2"],
-  "notes": "any useful tips or notes, or empty string"
-}
+    // fill in the form
+    document.getElementById('linkTitle').value = recipe.title || '';
+    document.getElementById('linkDesc').value = recipe.description || '';
+    document.getElementById('linkTime').value = recipe.time || '';
+    document.getElementById('linkIngredients').value = (recipe.ingredients || []).join('\n');
+    document.getElementById('linkSteps').value = (recipe.steps || []).join('\n');
+    document.getElementById('linkNotes').value = recipe.notes || '';
+    if (recipe.category) document.getElementById('linkCategory').value = recipe.category;
 
-Webpage text:
-${text}
+    status.className = 'ai-status success';
+    status.innerHTML = '&#10003; Recipe extracted! Review below and save.';
 
-Return ONLY the JSON, no other text.`
-          }]
-        })
-      });
-
-      const data = await res.json();
-      const raw = data.content[0].text.trim();
-      const clean = raw.replace(/```json|```/g,'').trim();
-      const recipe = JSON.parse(clean);
-
-      // fill in the form
-      document.getElementById('linkTitle').value = recipe.title || '';
-      document.getElementById('linkDesc').value = recipe.description || '';
-      document.getElementById('linkTime').value = recipe.time || '';
-      document.getElementById('linkIngredients').value = (recipe.ingredients || []).join('\n');
-      document.getElementById('linkSteps').value = (recipe.steps || []).join('\n');
-      document.getElementById('linkNotes').value = recipe.notes || '';
-      if (recipe.category) document.getElementById('linkCategory').value = recipe.category;
-
-      status.className = 'ai-status success';
-      status.innerHTML = '&#10003; Recipe extracted! Review below and save.';
-
-    } catch(e) {
-      console.error(e);
-      status.className = 'ai-status error';
-      status.innerHTML = '&#10005; Couldn\'t extract — some sites block this. Fill in manually.';
-    }
+  } catch(e) {
+    console.error(e);
+    status.className = 'ai-status error';
+    status.innerHTML = '&#10005; Couldn\'t extract — some sites block this. Fill in manually.';
   }
+}
 
   // ── ADD MODAL ──
   function openAddModal(recipeId = null) {
