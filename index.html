@@ -326,8 +326,7 @@
   </div>
 </div>
 
-<script>
-  const WORKER_URL = 'https://recipe-api.arschwartz20.workers.dev';
+const WORKER_URL = 'https://recipe-api.arschwartz20.workers.dev';
 
   const COLORS = [
     { name: 'Rust',  bar: '#b85c2a' },
@@ -338,14 +337,35 @@
     { name: 'Slate', bar: '#4a5568' },
   ];
 
-  let recipes = JSON.parse(localStorage.getItem('recipes_v3') || '[]');
+  let recipes = [];
   let currentFilter = 'all';
   let editingId = null;
   let activeTab = 'link';
   let selectedLinkColor = 0;
   let selectedCustomColor = 0;
 
-  function save() { localStorage.setItem('recipes_v3', JSON.stringify(recipes)); updateStats(); }
+  async function loadRecipes() {
+    try {
+      const res = await fetch(`${WORKER_URL}/recipes`);
+      recipes = await res.json();
+      updateStats();
+      renderRecipes();
+    } catch(e) {
+      console.error('Failed to load recipes', e);
+    }
+  }
+
+  async function saveRecipeToCloud(recipe) {
+    await fetch(`${WORKER_URL}/recipes`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(recipe)
+    });
+  }
+
+  async function deleteRecipeFromCloud(id) {
+    await fetch(`${WORKER_URL}/recipes/${id}`, { method: 'DELETE' });
+  }
 
   function updateStats() {
     document.getElementById('totalCount').textContent = recipes.length;
@@ -368,7 +388,7 @@
     }
 
     grid.innerHTML = filtered.map(r => {
-      const c = COLORS[r.colorIdx || 0];
+      const c = COLORS[r.color_idx || 0];
       return `<div class="recipe-card" onclick="viewRecipe('${r.id}')">
         <div class="card-color-bar" style="background:${c.bar}"></div>
         <div class="card-body">
@@ -406,44 +426,41 @@
     buildColorPicker(containerId, idx);
   }
 
-  // ── AI EXTRACTION ──
   async function extractRecipe() {
-  const url = document.getElementById('aiUrl').value.trim();
-  if (!url) return;
+    const url = document.getElementById('aiUrl').value.trim();
+    if (!url) return;
 
-  const status = document.getElementById('aiStatus');
-  status.className = 'ai-status loading';
-  status.innerHTML = '<div class="spinner"></div> Fetching &amp; extracting recipe with AI...';
+    const status = document.getElementById('aiStatus');
+    status.className = 'ai-status loading';
+    status.innerHTML = '<div class="spinner"></div> Fetching &amp; extracting recipe with AI...';
 
-  try {
-    const res = await fetch(WORKER_URL, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ url: url })
-    });
+    try {
+      const res = await fetch(WORKER_URL, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ url: url })
+      });
 
-    const recipe = await res.json();
+      const recipe = await res.json();
 
-    // fill in the form
-    document.getElementById('linkTitle').value = recipe.title || '';
-    document.getElementById('linkDesc').value = recipe.description || '';
-    document.getElementById('linkTime').value = recipe.time || '';
-    document.getElementById('linkIngredients').value = (recipe.ingredients || []).join('\n');
-    document.getElementById('linkSteps').value = (recipe.steps || []).join('\n');
-    document.getElementById('linkNotes').value = recipe.notes || '';
-    if (recipe.category) document.getElementById('linkCategory').value = recipe.category;
+      document.getElementById('linkTitle').value = recipe.title || '';
+      document.getElementById('linkDesc').value = recipe.description || '';
+      document.getElementById('linkTime').value = recipe.time || '';
+      document.getElementById('linkIngredients').value = (recipe.ingredients || []).join('\n');
+      document.getElementById('linkSteps').value = (recipe.steps || []).join('\n');
+      document.getElementById('linkNotes').value = recipe.notes || '';
+      if (recipe.category) document.getElementById('linkCategory').value = recipe.category;
 
-    status.className = 'ai-status success';
-    status.innerHTML = '&#10003; Recipe extracted! Review below and save.';
+      status.className = 'ai-status success';
+      status.innerHTML = '&#10003; Recipe extracted! Review below and save.';
 
-  } catch(e) {
-    console.error(e);
-    status.className = 'ai-status error';
-    status.innerHTML = '&#10005; Couldn\'t extract — some sites block this. Fill in manually.';
+    } catch(e) {
+      console.error(e);
+      status.className = 'ai-status error';
+      status.innerHTML = '&#10005; Couldn\'t extract — some sites block this. Fill in manually.';
+    }
   }
-}
 
-  // ── ADD MODAL ──
   function openAddModal(recipeId = null) {
     editingId = recipeId;
     selectedLinkColor = 0;
@@ -470,7 +487,7 @@
           document.getElementById('linkIngredients').value = (r.ingredients||[]).join('\n');
           document.getElementById('linkSteps').value = (r.steps||[]).join('\n');
           document.getElementById('linkNotes').value = r.notes || '';
-          selectedLinkColor = r.colorIdx || 0;
+          selectedLinkColor = r.color_idx || 0;
         } else {
           switchTab('custom');
           document.getElementById('customTitle').value = r.title;
@@ -480,7 +497,7 @@
           document.getElementById('customIngredients').value = (r.ingredients||[]).join('\n');
           document.getElementById('customSteps').value = (r.steps||[]).join('\n');
           document.getElementById('customNotes').value = r.notes || '';
-          selectedCustomColor = r.colorIdx || 0;
+          selectedCustomColor = r.color_idx || 0;
         }
       }
     } else {
@@ -502,12 +519,12 @@
     });
   }
 
-  function saveRecipe() {
+  async function saveRecipe() {
     const isLink = activeTab === 'link';
     const title = document.getElementById(isLink ? 'linkTitle' : 'customTitle').value.trim();
     if (!title) { alert('Please enter a recipe name.'); return; }
 
-    const base = {
+    const recipe = {
       id: editingId || Date.now().toString(),
       title,
       category: document.getElementById(isLink ? 'linkCategory' : 'customCategory').value,
@@ -516,24 +533,27 @@
       ingredients: document.getElementById(isLink ? 'linkIngredients' : 'customIngredients').value.split('\n').map(l=>l.trim()).filter(Boolean),
       steps: document.getElementById(isLink ? 'linkSteps' : 'customSteps').value.split('\n').map(l=>l.trim()).filter(Boolean),
       notes: document.getElementById(isLink ? 'linkNotes' : 'customNotes').value.trim(),
-      colorIdx: isLink ? selectedLinkColor : selectedCustomColor,
+      color_idx: isLink ? selectedLinkColor : selectedCustomColor,
       url: isLink ? document.getElementById('aiUrl').value.trim() : '',
       created: editingId ? (recipes.find(r=>r.id===editingId)?.created || Date.now()) : Date.now()
     };
 
-    if (editingId) recipes = recipes.map(r => r.id === editingId ? base : r);
-    else recipes.unshift(base);
+    if (editingId) {
+      await fetch(`${WORKER_URL}/recipes/${editingId}`, {
+        method: 'DELETE',
+        headers: { 'Content-Type': 'application/json' }
+      });
+    }
 
-    save();
-    renderRecipes();
+    await saveRecipeToCloud(recipe);
+    await loadRecipes();
     closeModal('addModal');
   }
 
-  // ── VIEW MODAL ──
   function viewRecipe(id) {
     const r = recipes.find(x => x.id === id);
     if (!r) return;
-    const c = COLORS[r.colorIdx || 0];
+    const c = COLORS[r.color_idx || 0];
 
     let html = `<div class="view-header" style="border-top:4px solid ${c.bar}">
       <div class="view-tags">
@@ -569,18 +589,17 @@
     openModal('viewModal');
   }
 
-  function deleteRecipe(id) {
+  async function deleteRecipe(id) {
     if (!confirm('Delete this recipe?')) return;
-    recipes = recipes.filter(r => r.id !== id);
-    save(); renderRecipes(); closeModal('viewModal');
+    await deleteRecipeFromCloud(id);
+    await loadRecipes();
+    closeModal('viewModal');
   }
 
   function openModal(id) { document.getElementById(id).classList.add('open'); }
   function closeModal(id) { document.getElementById(id).classList.remove('open'); }
   function closeIfOverlay(e, id) { if (e.target === document.getElementById(id)) closeModal(id); }
 
-  updateStats();
-  renderRecipes();
-</script>
+  loadRecipes();
 </body>
 </html>
