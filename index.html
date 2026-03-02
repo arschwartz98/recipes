@@ -595,7 +595,6 @@ const WORKER_URL = 'https://recipe-api.arschwartz20.workers.dev';
     await loadRecipes();
     closeModal('viewModal');
   }
-
   function openModal(id) { document.getElementById(id).classList.add('open'); }
   function closeModal(id) { document.getElementById(id).classList.remove('open'); }
   function closeIfOverlay(e, id) { if (e.target === document.getElementById(id)) closeModal(id); }
